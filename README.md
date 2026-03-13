@@ -1,6 +1,6 @@
 # display-mode-switcher
 
-Switch dual-mode monitor display modes (e.g. 5K↔2K high-refresh) for desktop use vs gaming. Use as a **toggle** or as a **wrapper** for Steam/games.
+Switch dual-mode monitor display modes (e.g. 5K↔2K high-refresh) for desktop use vs gaming. Use as a **toggle** or as a **wrapper** for Steam/games. Binary: `ddc-mode-switcher`.
 
 ## Currently supported
 
@@ -19,17 +19,17 @@ Other dual-mode monitors may work with additional profiles. Contributions welcom
 
 **Toggle mode** (high-res ↔ high-refresh):
 ```bash
-display-mode-switcher
+ddc-mode-switcher
 ```
 
 **Wrapper** (switch for game, restore on exit):
 ```bash
-display-mode-switcher mangohud %command%
+ddc-mode-switcher mangohud %command%
 ```
 
 **Steam launch options:**
 ```
-display-mode-switcher mangohud %command%
+ddc-mode-switcher mangohud %command%
 ```
 
 ## Environment
@@ -65,13 +65,13 @@ Profiles need: DDC bus, connector name(s), toggle command sequence, and optional
 ```bash
 yay -S ddc-mode-switcher
 ```
-Installs the `display-mode-switcher` binary.
+Installs the `ddc-mode-switcher` binary.
 
 **From source:**
 ```bash
 git clone https://github.com/Gunther-Schulz/display-mode-switcher.git
 cd display-mode-switcher
-sudo install -Dm755 display-mode-switcher /usr/bin/display-mode-switcher
+sudo install -Dm755 ddc-mode-switcher /usr/bin/ddc-mode-switcher
 ```
 
 ## License
