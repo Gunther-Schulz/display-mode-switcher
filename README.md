@@ -61,10 +61,11 @@ Profiles need: DDC bus, connector name(s), toggle command sequence, and optional
 
 ## Installation
 
-**From AUR:**
+**From AUR** (package name: `ddc-mode-switcher`):
 ```bash
-yay -S display-mode-switcher
+yay -S ddc-mode-switcher
 ```
+Installs the `display-mode-switcher` binary.
 
 **From source:**
 ```bash
