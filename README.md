@@ -10,10 +10,9 @@ Other dual-mode monitors may work with additional profiles. Contributions welcom
 
 ## Requirements
 
-- `ddcutil` — DDC/CI communication
-- `gdctl` — GNOME display config (Mutter 48+)
+- `ddcutil` — DDC/CI communication (any compositor)
 - `i2c_dev` kernel module loaded
-- GNOME on Wayland
+- **GNOME on Wayland** (for wrapper mode) — `gdctl` (Mutter 48+) restores res/scale when switching back to 5K (GNOME defaults to 4K otherwise). Toggle mode works on any compositor; wrapper's restore step is GNOME-specific.
 
 ## Usage
 
@@ -45,9 +44,9 @@ ddc-mode-switcher mangohud %command%
 ## How it works (XG27JCG)
 
 1. Uses DDC VCP 0x03 soft controls: value 1 opens menu, 20 confirms (toggles Frame Rate Boost)
-2. When switching to 2K: GNOME picks resolution automatically
-3. When switching back to 5K: GNOME defaults to 4K, so `gdctl` restores saved res/scale
-4. Wrapper saves state before switch, restores after command exits
+2. When switching to 2K: compositor picks resolution automatically
+3. When switching back to 5K: **GNOME** defaults to 4K → `gdctl` restores saved res/scale. On other compositors, restore is skipped.
+4. Wrapper saves state (when gdctl available) before switch, restores after command exits
 
 ## Adding support for other monitors
 

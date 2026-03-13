@@ -8,7 +8,7 @@
 
 set -e
 
-VERSION="1.0.1"
+VERSION="1.0.2"
 MONITOR="${DISPLAY_MODE_SWITCHER_MONITOR:-xg27jcg}"
 SAVE_FILE="/tmp/ddc-mode-switcher-state"
 SWITCH_DELAY="${DISPLAY_MODE_SWITCH_DELAY:-2}"
@@ -47,7 +47,8 @@ fi
 
 # --- Monitor profile: xg27jcg (ASUS ROG Strix XG27JCG) ---
 # 5K (5120×2880 @180Hz) ↔ 2K (2560×1440 @330Hz) "Frame Rate Boost"
-# DDC: 0x03 1 + 0x03 20 toggles. GNOME picks 4K when switching back → need gdctl.
+# DDC: 0x03 1 + 0x03 20 toggles. GNOME picks 4K when switching back → gdctl restores.
+# Without gdctl (non-GNOME): wrapper does toggle-run-toggle; no restore.
 run_xg27jcg() {
     local BUS="${XG27JCG_BUS:-5}"
     local CONN="${XG27JCG_CONN:-DP-2}"
@@ -93,13 +94,12 @@ run_xg27jcg() {
     parse_state > "$SAVE_FILE"
     source "$SAVE_FILE" 2>/dev/null || true
 
-    if [[ -z "$MODE_XG" || -z "$SCALE_XG" ]]; then
-        echo "ddc-mode-switcher: Could not detect ${CONN} state. Is gdctl available?" >&2
-        exit 1
-    fi
-
-    if [[ "$MODE_XG" == 2560x1440@* ]]; then
-        exec "$@"
+    HAVE_GDCTL=0
+    if [[ -n "$MODE_XG" && -n "$SCALE_XG" ]]; then
+        HAVE_GDCTL=1
+        if [[ "$MODE_XG" == 2560x1440@* ]]; then
+            exec "$@"
+        fi
     fi
 
     do_toggle
@@ -107,7 +107,9 @@ run_xg27jcg() {
     "$@"
     GAME_EXIT=$?
     do_toggle
-    do_restore
+    if (( HAVE_GDCTL )); then
+        do_restore
+    fi
     exit "$GAME_EXIT"
 }
 
