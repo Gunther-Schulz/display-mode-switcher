@@ -1,0 +1,78 @@
+# display-mode-switcher
+
+Switch dual-mode monitor display modes (e.g. 5K↔2K high-refresh) for desktop use vs gaming. Use as a **toggle** or as a **wrapper** for Steam/games.
+
+## Currently supported
+
+- **ASUS ROG Strix XG27JCG** — 5K (5120×2880 @180Hz) ↔ 2K (2560×1440 @330Hz) "Frame Rate Boost"
+
+Other dual-mode monitors may work with additional profiles. Contributions welcome.
+
+## Requirements
+
+- `ddcutil` — DDC/CI communication
+- `gdctl` — GNOME display config (Mutter 48+)
+- `i2c_dev` kernel module loaded
+- GNOME on Wayland
+
+## Usage
+
+**Toggle mode** (high-res ↔ high-refresh):
+```bash
+display-mode-switcher
+```
+
+**Wrapper** (switch for game, restore on exit):
+```bash
+display-mode-switcher mangohud %command%
+```
+
+**Steam launch options:**
+```
+display-mode-switcher mangohud %command%
+```
+
+## Environment
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DISPLAY_MODE_SWITCHER_MONITOR` | xg27jcg | Monitor profile |
+| `DISPLAY_MODE_SWITCH_DELAY` | 2 | Seconds to wait after switch before launching (wrapper only) |
+| `XG27JCG_BUS` | 5 | I2C bus for XG27JCG |
+| `XG27JCG_CONN` | DP-2 | Connector name (gdctl) |
+| `XG27JCG_SECONDARY_CONN` | DP-3 | Secondary monitor connector |
+
+## How it works (XG27JCG)
+
+1. Uses DDC VCP 0x03 soft controls: value 1 opens menu, 20 confirms (toggles Frame Rate Boost)
+2. When switching to 2K: GNOME picks resolution automatically
+3. When switching back to 5K: GNOME defaults to 4K, so `gdctl` restores saved res/scale
+4. Wrapper saves state before switch, restores after command exits
+
+## Adding support for other monitors
+
+The script is structured with per-monitor profiles. To add a monitor:
+
+1. Add a `run_<profile>()` function with `do_toggle`, `do_restore` (if needed), and wrapper logic
+2. Add the profile to the dispatch `case` in the main script
+3. Document the profile in README and submit a PR
+
+Profiles need: DDC bus, connector name(s), toggle command sequence, and optionally gdctl restore logic if the compositor misbehaves on mode switch.
+
+## Installation
+
+**From AUR:**
+```bash
+yay -S display-mode-switcher
+```
+
+**From source:**
+```bash
+git clone https://github.com/Gunther-Schulz/display-mode-switcher.git
+cd display-mode-switcher
+sudo install -Dm755 display-mode-switcher /usr/bin/display-mode-switcher
+```
+
+## License
+
+MIT

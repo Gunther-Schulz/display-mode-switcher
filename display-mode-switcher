@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# display-mode-switcher — Switch dual-mode monitor display modes (e.g. 5K↔2K) for gaming.
+# Usage: display-mode-switcher              → toggle mode
+#        display-mode-switcher <cmd...>     → switch, run command, restore on exit
+#
+# Currently supports: ASUS XG27JCG (see README for adding other monitors).
+# Requires: ddcutil, gdctl (mutter), i2c_dev loaded.
+
+set -e
+
+VERSION="1.0.0"
+MONITOR="${DISPLAY_MODE_SWITCHER_MONITOR:-xg27jcg}"
+SAVE_FILE="/tmp/display-mode-switcher-state"
+SWITCH_DELAY="${DISPLAY_MODE_SWITCH_DELAY:-2}"
+
+usage() {
+    cat <<EOF
+display-mode-switcher v${VERSION} — Switch dual-mode monitor modes for gaming
+
+Usage:
+  display-mode-switcher              Toggle mode (high-res ↔ high-refresh)
+  display-mode-switcher <cmd...>      Run command with gaming mode, restore on exit
+
+Examples:
+  display-mode-switcher
+  display-mode-switcher mangohud %command%    # Steam launch options
+
+Environment:
+  DISPLAY_MODE_SWITCHER_MONITOR    Monitor profile (default: xg27jcg)
+  DISPLAY_MODE_SWITCH_DELAY        Seconds to wait after switch (default: 2)
+
+Currently supported: xg27jcg (ASUS ROG Strix XG27JCG)
+EOF
+}
+
+case "${1:-}" in
+    -h|--help) usage; exit 0 ;;
+    -v|--version) echo "display-mode-switcher ${VERSION}"; exit 0 ;;
+    -t|--toggle) shift; MODE=toggle ;;
+esac
+
+if [[ $# -eq 0 && "$MODE" != "toggle" ]]; then
+    MODE=toggle
+else
+    MODE=wrapper
+fi
+
+# --- Monitor profile: xg27jcg (ASUS ROG Strix XG27JCG) ---
+# 5K (5120×2880 @180Hz) ↔ 2K (2560×1440 @330Hz) "Frame Rate Boost"
+# DDC: 0x03 1 + 0x03 20 toggles. GNOME picks 4K when switching back → need gdctl.
+run_xg27jcg() {
+    local BUS="${XG27JCG_BUS:-5}"
+    local CONN="${XG27JCG_CONN:-DP-2}"
+    local SEC_CONN="${XG27JCG_SECONDARY_CONN:-DP-3}"
+
+    parse_state() {
+        gdctl show 2>/dev/null | awk -v xg="$CONN" -v sec="$SEC_CONN" '
+        /Monitor / { mconn=$2; gsub(/[()]/,"",mconn) }
+        mconn==xg && /Current mode/ { getline; gsub(/.*──/,""); gsub(/^[[:space:]]+/,""); mode_xg=$0 }
+        mconn==sec && /Current mode/ { getline; gsub(/.*──/,""); gsub(/^[[:space:]]+/,""); mode_sec=$0 }
+        /Logical monitor/ { lm_scale="" }
+        /Scale:/ { gsub(/.*Scale: /,""); lm_scale=$0 }
+        /Monitors: \(/ { getline; if (lm_scale && $0 ~ xg) scale_xg=lm_scale; if (lm_scale && $0 ~ sec) scale_sec=lm_scale }
+        END {
+            print "MODE_XG=" mode_xg
+            print "SCALE_XG=" (scale_xg ? scale_xg : "1.66")
+            print "MODE_SEC=" mode_sec
+            print "SCALE_SEC=" (scale_sec ? scale_sec : "1.0")
+        }'
+    }
+
+    do_toggle() {
+        ddcutil setvcp 0x03 1 --bus "$BUS" --noverify 2>/dev/null || true
+        ddcutil setvcp 0x03 20 --bus "$BUS" --noverify 2>/dev/null || true
+    }
+
+    do_restore() {
+        sleep 1
+        if [[ -n "$MODE_SEC" && -n "$SCALE_SEC" ]]; then
+            gdctl set -L -M "$CONN" -m "$MODE_XG" -s "$SCALE_XG" -p \
+                   -L -M "$SEC_CONN" --right-of "$CONN" -s "$SCALE_SEC" 2>/dev/null
+        else
+            gdctl set -L -M "$CONN" -m "$MODE_XG" -s "$SCALE_XG" -p 2>/dev/null
+        fi
+    }
+
+    if [[ "$MODE" == toggle ]]; then
+        do_toggle
+        return
+    fi
+
+    # Wrapper mode
+    parse_state > "$SAVE_FILE"
+    source "$SAVE_FILE" 2>/dev/null || true
+
+    if [[ -z "$MODE_XG" || -z "$SCALE_XG" ]]; then
+        echo "display-mode-switcher: Could not detect ${CONN} state. Is gdctl available?" >&2
+        exit 1
+    fi
+
+    if [[ "$MODE_XG" == 2560x1440@* ]]; then
+        exec "$@"
+    fi
+
+    do_toggle
+    sleep "$SWITCH_DELAY"
+    "$@"
+    GAME_EXIT=$?
+    do_toggle
+    do_restore
+    exit "$GAME_EXIT"
+}
+
+# --- Dispatch by monitor profile ---
+case "$MONITOR" in
+    xg27jcg) run_xg27jcg "$@" ;;
+    *)
+        echo "display-mode-switcher: Unknown monitor '$MONITOR'. Supported: xg27jcg" >&2
+        echo "Set DISPLAY_MODE_SWITCHER_MONITOR or add support for your monitor." >&2
+        exit 1
+        ;;
+esac
