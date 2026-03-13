@@ -9,7 +9,7 @@ license=('MIT')
 depends=('ddcutil')
 optdepends=('mutter: gdctl for res/scale restore on GNOME')
 source=("https://github.com/Gunther-Schulz/display-mode-switcher/archive/refs/tags/v${pkgver}.tar.gz")
-sha256sums=('42b877450959907045fe68fd8cf01df95bf9a990eca39c6d9a74fcf273893e5d')
+sha256sums=('0f753892af3792a47aceb378470ef9c5917aea6dd37c215a7c341fe20bf4c80a')
 
 package() {
   cd "$srcdir/display-mode-switcher-${pkgver}"
