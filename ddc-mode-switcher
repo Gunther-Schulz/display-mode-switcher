@@ -43,21 +43,24 @@ EOF
 # --- Configuration ---
 
 load_config() {
-    local config="${DISPLAY_MODE_SWITCHER_CONFIG:-}"
-
-    if [[ -z "$config" ]]; then
-        config="${XDG_CONFIG_HOME:-$HOME/.config}/ddc-mode-switcher/config"
-        if [[ ! -f "$config" ]]; then
-            config="/etc/xdg/ddc-mode-switcher/config"
-        fi
-    fi
+    local user_config="${XDG_CONFIG_HOME:-$HOME/.config}/ddc-mode-switcher/config"
+    local config="${DISPLAY_MODE_SWITCHER_CONFIG:-$user_config}"
+    local example="/etc/xdg/ddc-mode-switcher/config.example"
 
     if [[ ! -f "$config" ]]; then
-        echo "ddc-mode-switcher: no config found." >&2
-        echo "  cp /etc/xdg/ddc-mode-switcher/config.example \\" >&2
-        echo "     ~/.config/ddc-mode-switcher/config" >&2
-        echo "  Then edit it with your monitor settings. See --help for details." >&2
-        exit 1
+        if [[ -f "$example" ]]; then
+            mkdir -p "$(dirname "$user_config")"
+            cp "$example" "$user_config"
+            config="$user_config"
+            echo "ddc-mode-switcher: config created at $user_config" >&2
+            echo "Edit it and uncomment/set the required values: BUS, CONN, NATIVE_RES, TOGGLE_STEPS" >&2
+            echo "See 'ddc-mode-switcher --help' for details." >&2
+            exit 1
+        else
+            echo "ddc-mode-switcher: no config found and no example at $example" >&2
+            echo "See 'ddc-mode-switcher --help' for setup instructions." >&2
+            exit 1
+        fi
     fi
 
     source "$config"
@@ -70,7 +73,8 @@ load_config() {
     [[ ${#TOGGLE_STEPS[@]} -eq 0 ]] 2>/dev/null && missing+=(TOGGLE_STEPS)
 
     if [[ ${#missing[@]} -gt 0 ]]; then
-        echo "ddc-mode-switcher: missing required config: ${missing[*]}" >&2
+        echo "ddc-mode-switcher: missing required config in $config: ${missing[*]}" >&2
+        echo "See 'ddc-mode-switcher --help' for details." >&2
         exit 1
     fi
 
