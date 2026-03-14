@@ -1,39 +1,59 @@
 # ddc-mode-switcher configuration
-# Copy to: ~/.config/ddc-mode-switcher/config
 #
-# Find your values:
+# This file is sourced as a bash script. Uncomment and edit the settings below
+# to match your monitor setup.
+#
+# Location: ~/.config/ddc-mode-switcher/config
+#
+# How to find your values:
 #   ddcutil detect        → I2C bus number
-#   gdctl show            → connector names, current modes, scales
 #   ddcutil capabilities  → VCP codes for your monitor's mode switch
+#   gdctl show            → connector names, current modes, scales (GNOME only)
+#
+# For more information see: https://github.com/Gunther-Schulz/display-mode-switcher
 
-# --- Required ---
+# =============================================================================
+# Required settings
+# =============================================================================
 
-# I2C bus number for the monitor
-BUS=5
+# I2C bus number for the monitor.
+# Find it with: ddcutil detect
+#BUS=5
 
-# Primary monitor connector name (as shown by gdctl)
-CONN=DP-2
+# Primary monitor connector name as reported by gdctl.
+# Find it with: gdctl show
+#CONN=DP-2
 
-# Desktop resolution — the mode you want restored after gaming.
+# Desktop (native) resolution — the mode to restore to after gaming.
 # Must match exactly what gdctl reports (resolution only, no refresh rate).
-NATIVE_RES=5120x2880
+# Example: for a 5K monitor that switches to 2K gaming mode, this is "5120x2880".
+#NATIVE_RES=5120x2880
 
 # DDC toggle sequence: array of "VCP_CODE VALUE" pairs sent in order.
-# This example uses VCP 0x03 (soft controls) to toggle Frame Rate Boost
-# on the ASUS ROG Strix XG27JCG (value 1 = open menu, 20 = confirm).
-TOGGLE_STEPS=("0x03 1" "0x03 20")
+# Each entry becomes a separate "ddcutil setvcp" call.
+#
+# Example for ASUS ROG Strix XG27JCG (Frame Rate Boost):
+#   VCP 0x03 value 1 = open OSD menu, value 20 = confirm toggle
+#TOGGLE_STEPS=("0x03 1" "0x03 20")
 
-# --- Optional ---
+# =============================================================================
+# Optional settings
+# =============================================================================
 
-# Secondary monitor connector (for multi-monitor gdctl restore)
+# Secondary monitor connector for multi-monitor gdctl restore.
+# Only needed if you have a second monitor whose layout should be restored.
 #SECONDARY_CONN=DP-3
 
-# Default scale values used as fallback if gdctl can't read them
-#DEFAULT_SCALE=1.66
+# Fallback scale values used when gdctl can't read the current scale.
+# These are applied during restore if the scale couldn't be captured.
+#DEFAULT_SCALE=1.0
 #DEFAULT_SECONDARY_SCALE=1.0
 
-# Max seconds to poll gdctl for mode switch confirmation (default: 10)
+# Max seconds to poll gdctl for mode switch confirmation (default: 10).
+# The script polls once per second until the mode changes or this timeout
+# is reached. In practice, switches usually confirm within 1-3 seconds.
 #SWITCH_TIMEOUT=10
 
-# Blind wait in seconds when gdctl is unavailable (default: 2)
+# Blind wait in seconds when gdctl is unavailable (default: 2).
+# Used on non-GNOME compositors where mode verification isn't possible.
 #FALLBACK_WAIT=2

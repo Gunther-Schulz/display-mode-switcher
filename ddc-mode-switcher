@@ -43,11 +43,20 @@ EOF
 # --- Configuration ---
 
 load_config() {
-    local config="${DISPLAY_MODE_SWITCHER_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/ddc-mode-switcher/config}"
+    local config="${DISPLAY_MODE_SWITCHER_CONFIG:-}"
+
+    if [[ -z "$config" ]]; then
+        config="${XDG_CONFIG_HOME:-$HOME/.config}/ddc-mode-switcher/config"
+        if [[ ! -f "$config" ]]; then
+            config="/etc/xdg/ddc-mode-switcher/config"
+        fi
+    fi
 
     if [[ ! -f "$config" ]]; then
-        echo "ddc-mode-switcher: config not found: $config" >&2
-        echo "Run 'ddc-mode-switcher --help' for setup instructions." >&2
+        echo "ddc-mode-switcher: no config found." >&2
+        echo "  cp /etc/xdg/ddc-mode-switcher/config.example \\" >&2
+        echo "     ~/.config/ddc-mode-switcher/config" >&2
+        echo "  Then edit it with your monitor settings. See --help for details." >&2
         exit 1
     fi
 
