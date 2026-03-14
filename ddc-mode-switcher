@@ -8,7 +8,7 @@
 
 set -e
 
-VERSION="2.1.0"
+VERSION="2.1.1"
 STATE_FILE="/tmp/ddc-mode-switcher-state"
 
 usage() {
@@ -228,17 +228,17 @@ if command -v gdctl &>/dev/null; then
     if [[ -n "${RESTORE_COUNT:-}" && "$RESTORE_COUNT" -gt 0 ]]; then
         HAVE_GDCTL=1
         # Find our monitor's mode in the saved state
-        local saved_res=""
+        saved_res=""
         for (( _i=1; _i<=RESTORE_COUNT; _i++ )); do
-            local _conn_var="RESTORE_CONN_$_i"
-            local _mode_var="RESTORE_MODE_$_i"
+            _conn_var="RESTORE_CONN_$_i"
+            _mode_var="RESTORE_MODE_$_i"
             if [[ "${!_conn_var}" == "$CONN" ]]; then
                 saved_res="${!_mode_var%%@*}"
                 break
             fi
         done
         if [[ -n "$saved_res" && "$saved_res" != "$NATIVE_RES" ]]; then
-            echo "ddc-mode-switcher: already in alternate mode ($current_res), running command directly" >&2
+            echo "ddc-mode-switcher: already in alternate mode ($saved_res), running command directly" >&2
             exec "$@"
         fi
     fi
