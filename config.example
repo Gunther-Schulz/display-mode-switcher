@@ -16,10 +16,6 @@
 # Required settings
 # =============================================================================
 
-# I2C bus number for the monitor.
-# Find it with: ddcutil detect
-#BUS=5
-
 # Primary monitor connector name as reported by gdctl.
 # Find it with: gdctl show
 #CONN=DP-2
@@ -39,6 +35,10 @@
 # =============================================================================
 # Optional settings
 # =============================================================================
+
+# I2C bus number override. Auto-detected from CONN by default.
+# Only set this if auto-detection picks the wrong bus.
+#BUS=5
 
 # Secondary monitor connector for multi-monitor gdctl restore.
 # Only needed if you have a second monitor whose layout should be restored.

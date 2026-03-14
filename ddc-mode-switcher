@@ -8,7 +8,7 @@
 
 set -e
 
-VERSION="2.0.1"
+VERSION="2.0.2"
 STATE_FILE="/tmp/ddc-mode-switcher-state"
 
 usage() {
@@ -24,8 +24,8 @@ Examples:
   ddc-mode-switcher mangohud %command%    # Steam launch options
 
 Configuration (~/.config/ddc-mode-switcher/config):
-  BUS=5                              # I2C bus (find with: ddcutil detect)
   CONN=DP-2                          # Monitor connector (find with: gdctl show)
+  BUS=5                              # I2C bus (optional, auto-detected from CONN)
   NATIVE_RES=5120x2880               # Desktop resolution (the mode to restore to)
   TOGGLE_STEPS=("0x03 1" "0x03 20")  # DDC VCP toggle sequence
   SECONDARY_CONN=DP-3                # Secondary monitor connector (optional)
@@ -67,7 +67,6 @@ load_config() {
 
     # Validate required settings
     local missing=()
-    [[ -z "${BUS:-}" ]] && missing+=(BUS)
     [[ -z "${CONN:-}" ]] && missing+=(CONN)
     [[ -z "${NATIVE_RES:-}" ]] && missing+=(NATIVE_RES)
     [[ ${#TOGGLE_STEPS[@]} -eq 0 ]] 2>/dev/null && missing+=(TOGGLE_STEPS)
@@ -76,6 +75,19 @@ load_config() {
         echo "ddc-mode-switcher: missing required config in $config: ${missing[*]}" >&2
         echo "See 'ddc-mode-switcher --help' for details." >&2
         exit 1
+    fi
+
+    # Auto-detect I2C bus from connector name if BUS is not set
+    if [[ -z "${BUS:-}" ]]; then
+        BUS=$(ddcutil detect 2>/dev/null | awk -v conn="$CONN" '
+            /I2C bus:/ { bus=$NF; gsub(/.*i2c-/, "", bus) }
+            /DRM_connector:/ && $NF ~ conn"$" { print bus; exit }
+        ')
+        if [[ -z "$BUS" ]]; then
+            echo "ddc-mode-switcher: could not find I2C bus for connector $CONN" >&2
+            echo "Set BUS manually in $config or check 'ddcutil detect' output." >&2
+            exit 1
+        fi
     fi
 
     # Defaults
@@ -158,7 +170,6 @@ wait_for_mode_change() {
         if [[ -n "$current_res" && "$current_res" != "$from_res" ]]; then
             return 0
         fi
-        sleep 1
     done
 
     return 1
