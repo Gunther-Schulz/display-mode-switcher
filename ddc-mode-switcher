@@ -8,7 +8,7 @@
 
 set -e
 
-VERSION="2.0.0"
+VERSION="2.0.1"
 STATE_FILE="/tmp/ddc-mode-switcher-state"
 
 usage() {
@@ -153,6 +153,7 @@ wait_for_mode_change() {
 
     local i current_res
     for (( i=0; i<SWITCH_TIMEOUT; i++ )); do
+        sleep 1
         current_res=$(get_current_res)
         if [[ -n "$current_res" && "$current_res" != "$from_res" ]]; then
             return 0
@@ -174,11 +175,11 @@ wait_for_mode_match() {
 
     local i current_res
     for (( i=0; i<SWITCH_TIMEOUT; i++ )); do
+        sleep 1
         current_res=$(get_current_res)
         if [[ "$current_res" == "$expected_res" ]]; then
             return 0
         fi
-        sleep 1
     done
 
     return 1
