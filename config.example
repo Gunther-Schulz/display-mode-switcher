@@ -40,15 +40,6 @@
 # Only set this if auto-detection picks the wrong bus.
 #BUS=5
 
-# Secondary monitor connector for multi-monitor gdctl restore.
-# Only needed if you have a second monitor whose layout should be restored.
-#SECONDARY_CONN=DP-3
-
-# Fallback scale values used when gdctl can't read the current scale.
-# These are applied during restore if the scale couldn't be captured.
-#DEFAULT_SCALE=1.0
-#DEFAULT_SECONDARY_SCALE=1.0
-
 # Max seconds to poll gdctl for mode switch confirmation (default: 10).
 # The script polls once per second until the mode changes or this timeout
 # is reached. In practice, switches usually confirm within 1-3 seconds.

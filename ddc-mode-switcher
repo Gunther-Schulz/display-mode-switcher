@@ -8,7 +8,7 @@
 
 set -e
 
-VERSION="2.0.2"
+VERSION="2.1.0"
 STATE_FILE="/tmp/ddc-mode-switcher-state"
 
 usage() {
@@ -25,12 +25,9 @@ Examples:
 
 Configuration (~/.config/ddc-mode-switcher/config):
   CONN=DP-2                          # Monitor connector (find with: gdctl show)
-  BUS=5                              # I2C bus (optional, auto-detected from CONN)
   NATIVE_RES=5120x2880               # Desktop resolution (the mode to restore to)
   TOGGLE_STEPS=("0x03 1" "0x03 20")  # DDC VCP toggle sequence
-  SECONDARY_CONN=DP-3                # Secondary monitor connector (optional)
-  DEFAULT_SCALE=1.66                  # Fallback primary scale (optional, default: 1.0)
-  DEFAULT_SECONDARY_SCALE=1.0        # Fallback secondary scale (optional, default: 1.0)
+  BUS=5                              # I2C bus (optional, auto-detected from CONN)
   SWITCH_TIMEOUT=10                  # Max seconds for mode confirmation (optional, default: 10)
   FALLBACK_WAIT=2                    # Blind wait when gdctl unavailable (optional, default: 2)
 
@@ -91,8 +88,6 @@ load_config() {
     fi
 
     # Defaults
-    DEFAULT_SCALE="${DEFAULT_SCALE:-1.0}"
-    DEFAULT_SECONDARY_SCALE="${DEFAULT_SECONDARY_SCALE:-1.0}"
     SWITCH_TIMEOUT="${DISPLAY_MODE_SWITCH_TIMEOUT:-${SWITCH_TIMEOUT:-10}}"
     FALLBACK_WAIT="${FALLBACK_WAIT:-2}"
 }
@@ -110,36 +105,49 @@ get_current_res() {
 }
 
 save_state() {
-    gdctl show 2>/dev/null | awk -v pri="$CONN" -v sec="${SECONDARY_CONN:-}" \
-        -v ds="$DEFAULT_SCALE" -v dss="$DEFAULT_SECONDARY_SCALE" '
+    # Capture the full gdctl set command to reconstruct the current layout.
+    # Parses all logical monitors so restore doesn't disable any.
+    gdctl show 2>/dev/null | awk '
+        /Logical monitor/ { n++; pos[n]=""; scale[n]=""; pri[n]=""; conn[n]="" }
+        n && /Position:/ { gsub(/.*\(/, ""); gsub(/\)/, ""); split($0, p, ", "); x[n]=p[1]; y[n]=p[2] }
+        n && /Scale:/ { gsub(/.*Scale: /, ""); scale[n]=$0 }
+        n && /Primary: yes/ { pri[n]=1 }
+        n && /Monitors: \(/ { getline; gsub(/.*──/, ""); conn[n]=$1 }
         /Monitor / { mconn=$2; gsub(/[()]/,"",mconn) }
-        mconn==pri && /Current mode/ { getline; gsub(/.*──/,""); gsub(/^[[:space:]]+/,""); mode_pri=$0 }
-        sec && mconn==sec && /Current mode/ { getline; gsub(/.*──/,""); gsub(/^[[:space:]]+/,""); mode_sec=$0 }
-        /Logical monitor/ { lm_scale="" }
-        /Scale:/ { gsub(/.*Scale: /,""); lm_scale=$0 }
-        /Monitors: \(/ {
-            getline
-            if (lm_scale && $0 ~ pri) scale_pri=lm_scale
-            if (sec && lm_scale && $0 ~ sec) scale_sec=lm_scale
-        }
+        /Current mode/ { getline; gsub(/.*──/,""); gsub(/^[[:space:]]+/,""); modes[mconn]=$0 }
         END {
-            print "SAVED_MODE=" mode_pri
-            print "SAVED_SCALE=" (scale_pri ? scale_pri : ds)
-            print "SAVED_SEC_MODE=" mode_sec
-            print "SAVED_SEC_SCALE=" (scale_sec ? scale_sec : dss)
+            for (i=1; i<=n; i++) {
+                printf "RESTORE_CONN_%d=%s\n", i, conn[i]
+                printf "RESTORE_MODE_%d=%s\n", i, modes[conn[i]]
+                printf "RESTORE_SCALE_%d=%s\n", i, scale[i]
+                printf "RESTORE_X_%d=%s\n", i, x[i]
+                printf "RESTORE_Y_%d=%s\n", i, y[i]
+                printf "RESTORE_PRIMARY_%d=%s\n", i, pri[i]
+            }
+            print "RESTORE_COUNT=" n
         }
     ' > "$STATE_FILE"
 }
 
 do_restore() {
     source "$STATE_FILE" 2>/dev/null || return 1
+    [[ -z "${RESTORE_COUNT:-}" || "$RESTORE_COUNT" -eq 0 ]] && return 1
 
-    if [[ -n "$SAVED_SEC_MODE" && -n "${SECONDARY_CONN:-}" ]]; then
-        gdctl set -L -M "$CONN" -m "$SAVED_MODE" -s "$SAVED_SCALE" -p \
-               -L -M "$SECONDARY_CONN" --right-of "$CONN" -s "$SAVED_SEC_SCALE" 2>/dev/null
-    else
-        gdctl set -L -M "$CONN" -m "$SAVED_MODE" -s "$SAVED_SCALE" -p 2>/dev/null
-    fi
+    local args=()
+    local i
+    for (( i=1; i<=RESTORE_COUNT; i++ )); do
+        local conn_var="RESTORE_CONN_$i"
+        local mode_var="RESTORE_MODE_$i"
+        local scale_var="RESTORE_SCALE_$i"
+        local x_var="RESTORE_X_$i"
+        local y_var="RESTORE_Y_$i"
+        local pri_var="RESTORE_PRIMARY_$i"
+
+        args+=(-L -M "${!conn_var}" -m "${!mode_var}" -s "${!scale_var}" -x "${!x_var}" -y "${!y_var}")
+        [[ "${!pri_var}" == "1" ]] && args+=(-p)
+    done
+
+    gdctl set "${args[@]}" 2>/dev/null
 }
 
 # --- DDC toggle ---
@@ -217,10 +225,19 @@ HAVE_GDCTL=0
 if command -v gdctl &>/dev/null; then
     save_state
     source "$STATE_FILE" 2>/dev/null || true
-    if [[ -n "${SAVED_MODE:-}" ]]; then
+    if [[ -n "${RESTORE_COUNT:-}" && "$RESTORE_COUNT" -gt 0 ]]; then
         HAVE_GDCTL=1
-        current_res="${SAVED_MODE%%@*}"
-        if [[ "$current_res" != "$NATIVE_RES" ]]; then
+        # Find our monitor's mode in the saved state
+        local saved_res=""
+        for (( _i=1; _i<=RESTORE_COUNT; _i++ )); do
+            local _conn_var="RESTORE_CONN_$_i"
+            local _mode_var="RESTORE_MODE_$_i"
+            if [[ "${!_conn_var}" == "$CONN" ]]; then
+                saved_res="${!_mode_var%%@*}"
+                break
+            fi
+        done
+        if [[ -n "$saved_res" && "$saved_res" != "$NATIVE_RES" ]]; then
             echo "ddc-mode-switcher: already in alternate mode ($current_res), running command directly" >&2
             exec "$@"
         fi
