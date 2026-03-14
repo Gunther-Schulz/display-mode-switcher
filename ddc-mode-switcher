@@ -1,124 +1,223 @@
 #!/usr/bin/env bash
-# ddc-mode-switcher — Switch dual-mode monitor display modes (e.g. 5K↔2K) for gaming.
+# ddc-mode-switcher — Switch dual-mode monitor display modes for gaming.
 # Usage: ddc-mode-switcher              → toggle mode
 #        ddc-mode-switcher <cmd...>     → switch, run command, restore on exit
 #
-# Currently supports: ASUS XG27JCG (see README for adding other monitors).
-# Requires: ddcutil, gdctl (mutter), i2c_dev loaded.
+# Configure via ~/.config/ddc-mode-switcher/config (or DISPLAY_MODE_SWITCHER_CONFIG).
+# Requires: ddcutil, i2c_dev loaded. Optional: gdctl (mutter 48+) for verified switching.
 
 set -e
 
-VERSION="1.0.2"
-MONITOR="${DISPLAY_MODE_SWITCHER_MONITOR:-xg27jcg}"
-SAVE_FILE="/tmp/ddc-mode-switcher-state"
-SWITCH_DELAY="${DISPLAY_MODE_SWITCH_DELAY:-2}"
+VERSION="2.0.0"
+STATE_FILE="/tmp/ddc-mode-switcher-state"
 
 usage() {
     cat <<EOF
 ddc-mode-switcher v${VERSION} — Switch dual-mode monitor modes for gaming
 
 Usage:
-  ddc-mode-switcher              Toggle mode (high-res ↔ high-refresh)
-  ddc-mode-switcher <cmd...>      Run command with gaming mode, restore on exit
+  ddc-mode-switcher              Toggle mode
+  ddc-mode-switcher <cmd...>     Run command in alternate mode, restore on exit
 
 Examples:
   ddc-mode-switcher
   ddc-mode-switcher mangohud %command%    # Steam launch options
 
-Environment:
-  DISPLAY_MODE_SWITCHER_MONITOR    Monitor profile (default: xg27jcg)
-  DISPLAY_MODE_SWITCH_DELAY        Seconds to wait after switch (default: 2)
+Configuration (~/.config/ddc-mode-switcher/config):
+  BUS=5                              # I2C bus (find with: ddcutil detect)
+  CONN=DP-2                          # Monitor connector (find with: gdctl show)
+  NATIVE_RES=5120x2880               # Desktop resolution (the mode to restore to)
+  TOGGLE_STEPS=("0x03 1" "0x03 20")  # DDC VCP toggle sequence
+  SECONDARY_CONN=DP-3                # Secondary monitor connector (optional)
+  DEFAULT_SCALE=1.66                  # Fallback primary scale (optional, default: 1.0)
+  DEFAULT_SECONDARY_SCALE=1.0        # Fallback secondary scale (optional, default: 1.0)
+  SWITCH_TIMEOUT=10                  # Max seconds for mode confirmation (optional, default: 10)
+  FALLBACK_WAIT=2                    # Blind wait when gdctl unavailable (optional, default: 2)
 
-Currently supported: xg27jcg (ASUS ROG Strix XG27JCG)
+Environment:
+  DISPLAY_MODE_SWITCHER_CONFIG       Config file path (overrides default location)
+  DISPLAY_MODE_SWITCH_TIMEOUT        Override SWITCH_TIMEOUT from config
 EOF
 }
+
+# --- Configuration ---
+
+load_config() {
+    local config="${DISPLAY_MODE_SWITCHER_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/ddc-mode-switcher/config}"
+
+    if [[ ! -f "$config" ]]; then
+        echo "ddc-mode-switcher: config not found: $config" >&2
+        echo "Run 'ddc-mode-switcher --help' for setup instructions." >&2
+        exit 1
+    fi
+
+    source "$config"
+
+    # Validate required settings
+    local missing=()
+    [[ -z "${BUS:-}" ]] && missing+=(BUS)
+    [[ -z "${CONN:-}" ]] && missing+=(CONN)
+    [[ -z "${NATIVE_RES:-}" ]] && missing+=(NATIVE_RES)
+    [[ ${#TOGGLE_STEPS[@]} -eq 0 ]] 2>/dev/null && missing+=(TOGGLE_STEPS)
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo "ddc-mode-switcher: missing required config: ${missing[*]}" >&2
+        exit 1
+    fi
+
+    # Defaults
+    DEFAULT_SCALE="${DEFAULT_SCALE:-1.0}"
+    DEFAULT_SECONDARY_SCALE="${DEFAULT_SECONDARY_SCALE:-1.0}"
+    SWITCH_TIMEOUT="${DISPLAY_MODE_SWITCH_TIMEOUT:-${SWITCH_TIMEOUT:-10}}"
+    FALLBACK_WAIT="${FALLBACK_WAIT:-2}"
+}
+
+# --- Display state (gdctl) ---
+
+get_current_res() {
+    gdctl show 2>/dev/null | awk -v target="$CONN" '
+        /Monitor / { mconn=$2; gsub(/[()]/,"",mconn) }
+        mconn==target && /Current mode/ {
+            getline; gsub(/.*──/,""); gsub(/^[[:space:]]+/,"")
+            sub(/@.*/, ""); print; exit
+        }
+    '
+}
+
+save_state() {
+    gdctl show 2>/dev/null | awk -v pri="$CONN" -v sec="${SECONDARY_CONN:-}" \
+        -v ds="$DEFAULT_SCALE" -v dss="$DEFAULT_SECONDARY_SCALE" '
+        /Monitor / { mconn=$2; gsub(/[()]/,"",mconn) }
+        mconn==pri && /Current mode/ { getline; gsub(/.*──/,""); gsub(/^[[:space:]]+/,""); mode_pri=$0 }
+        sec && mconn==sec && /Current mode/ { getline; gsub(/.*──/,""); gsub(/^[[:space:]]+/,""); mode_sec=$0 }
+        /Logical monitor/ { lm_scale="" }
+        /Scale:/ { gsub(/.*Scale: /,""); lm_scale=$0 }
+        /Monitors: \(/ {
+            getline
+            if (lm_scale && $0 ~ pri) scale_pri=lm_scale
+            if (sec && lm_scale && $0 ~ sec) scale_sec=lm_scale
+        }
+        END {
+            print "SAVED_MODE=" mode_pri
+            print "SAVED_SCALE=" (scale_pri ? scale_pri : ds)
+            print "SAVED_SEC_MODE=" mode_sec
+            print "SAVED_SEC_SCALE=" (scale_sec ? scale_sec : dss)
+        }
+    ' > "$STATE_FILE"
+}
+
+do_restore() {
+    source "$STATE_FILE" 2>/dev/null || return 1
+
+    if [[ -n "$SAVED_SEC_MODE" && -n "${SECONDARY_CONN:-}" ]]; then
+        gdctl set -L -M "$CONN" -m "$SAVED_MODE" -s "$SAVED_SCALE" -p \
+               -L -M "$SECONDARY_CONN" --right-of "$CONN" -s "$SAVED_SEC_SCALE" 2>/dev/null
+    else
+        gdctl set -L -M "$CONN" -m "$SAVED_MODE" -s "$SAVED_SCALE" -p 2>/dev/null
+    fi
+}
+
+# --- DDC toggle ---
+
+do_toggle() {
+    local step
+    for step in "${TOGGLE_STEPS[@]}"; do
+        # shellcheck disable=SC2086
+        ddcutil setvcp $step --bus "$BUS" --noverify 2>/dev/null || true
+    done
+}
+
+# --- Mode verification ---
+
+# Wait until the monitor resolution changes away from $1, or timeout.
+wait_for_mode_change() {
+    local from_res="$1"
+
+    if ! (( HAVE_GDCTL )); then
+        sleep "$FALLBACK_WAIT"
+        return 0
+    fi
+
+    local i current_res
+    for (( i=0; i<SWITCH_TIMEOUT; i++ )); do
+        current_res=$(get_current_res)
+        if [[ -n "$current_res" && "$current_res" != "$from_res" ]]; then
+            return 0
+        fi
+        sleep 1
+    done
+
+    return 1
+}
+
+# Wait until the monitor resolution matches $1, or timeout.
+wait_for_mode_match() {
+    local expected_res="$1"
+
+    if ! (( HAVE_GDCTL )); then
+        sleep "$FALLBACK_WAIT"
+        return 0
+    fi
+
+    local i current_res
+    for (( i=0; i<SWITCH_TIMEOUT; i++ )); do
+        current_res=$(get_current_res)
+        if [[ "$current_res" == "$expected_res" ]]; then
+            return 0
+        fi
+        sleep 1
+    done
+
+    return 1
+}
+
+# --- Main ---
 
 case "${1:-}" in
     -h|--help) usage; exit 0 ;;
     -v|--version) echo "ddc-mode-switcher ${VERSION}"; exit 0 ;;
-    -t|--toggle) shift; MODE=toggle ;;
+    -t|--toggle) shift ;;
 esac
 
-if [[ $# -eq 0 && "$MODE" != "toggle" ]]; then
-    MODE=toggle
-else
-    MODE=wrapper
+load_config
+
+# Toggle mode (no arguments)
+if [[ $# -eq 0 ]]; then
+    do_toggle
+    exit 0
 fi
 
-# --- Monitor profile: xg27jcg (ASUS ROG Strix XG27JCG) ---
-# 5K (5120×2880 @180Hz) ↔ 2K (2560×1440 @330Hz) "Frame Rate Boost"
-# DDC: 0x03 1 + 0x03 20 toggles. GNOME picks 4K when switching back → gdctl restores.
-# Without gdctl (non-GNOME): wrapper does toggle-run-toggle; no restore.
-run_xg27jcg() {
-    local BUS="${XG27JCG_BUS:-5}"
-    local CONN="${XG27JCG_CONN:-DP-2}"
-    local SEC_CONN="${XG27JCG_SECONDARY_CONN:-DP-3}"
-
-    parse_state() {
-        gdctl show 2>/dev/null | awk -v xg="$CONN" -v sec="$SEC_CONN" '
-        /Monitor / { mconn=$2; gsub(/[()]/,"",mconn) }
-        mconn==xg && /Current mode/ { getline; gsub(/.*──/,""); gsub(/^[[:space:]]+/,""); mode_xg=$0 }
-        mconn==sec && /Current mode/ { getline; gsub(/.*──/,""); gsub(/^[[:space:]]+/,""); mode_sec=$0 }
-        /Logical monitor/ { lm_scale="" }
-        /Scale:/ { gsub(/.*Scale: /,""); lm_scale=$0 }
-        /Monitors: \(/ { getline; if (lm_scale && $0 ~ xg) scale_xg=lm_scale; if (lm_scale && $0 ~ sec) scale_sec=lm_scale }
-        END {
-            print "MODE_XG=" mode_xg
-            print "SCALE_XG=" (scale_xg ? scale_xg : "1.66")
-            print "MODE_SEC=" mode_sec
-            print "SCALE_SEC=" (scale_sec ? scale_sec : "1.0")
-        }'
-    }
-
-    do_toggle() {
-        ddcutil setvcp 0x03 1 --bus "$BUS" --noverify 2>/dev/null || true
-        ddcutil setvcp 0x03 20 --bus "$BUS" --noverify 2>/dev/null || true
-    }
-
-    do_restore() {
-        sleep 1
-        if [[ -n "$MODE_SEC" && -n "$SCALE_SEC" ]]; then
-            gdctl set -L -M "$CONN" -m "$MODE_XG" -s "$SCALE_XG" -p \
-                   -L -M "$SEC_CONN" --right-of "$CONN" -s "$SCALE_SEC" 2>/dev/null
-        else
-            gdctl set -L -M "$CONN" -m "$MODE_XG" -s "$SCALE_XG" -p 2>/dev/null
-        fi
-    }
-
-    if [[ "$MODE" == toggle ]]; then
-        do_toggle
-        return
-    fi
-
-    # Wrapper mode
-    parse_state > "$SAVE_FILE"
-    source "$SAVE_FILE" 2>/dev/null || true
-
-    HAVE_GDCTL=0
-    if [[ -n "$MODE_XG" && -n "$SCALE_XG" ]]; then
+# Wrapper mode
+HAVE_GDCTL=0
+if command -v gdctl &>/dev/null; then
+    save_state
+    source "$STATE_FILE" 2>/dev/null || true
+    if [[ -n "${SAVED_MODE:-}" ]]; then
         HAVE_GDCTL=1
-        if [[ "$MODE_XG" == 2560x1440@* ]]; then
+        current_res="${SAVED_MODE%%@*}"
+        if [[ "$current_res" != "$NATIVE_RES" ]]; then
+            echo "ddc-mode-switcher: already in alternate mode ($current_res), running command directly" >&2
             exec "$@"
         fi
     fi
+fi
 
-    do_toggle
-    sleep "$SWITCH_DELAY"
-    "$@"
-    GAME_EXIT=$?
-    do_toggle
-    if (( HAVE_GDCTL )); then
-        do_restore
+do_toggle
+
+if ! wait_for_mode_change "$NATIVE_RES"; then
+    echo "ddc-mode-switcher: WARNING: mode switch not confirmed after ${SWITCH_TIMEOUT}s, proceeding anyway" >&2
+fi
+
+"$@"
+GAME_EXIT=$?
+
+do_toggle
+
+if (( HAVE_GDCTL )); then
+    if ! wait_for_mode_match "$NATIVE_RES"; then
+        echo "ddc-mode-switcher: WARNING: switch back to ${NATIVE_RES} not confirmed after ${SWITCH_TIMEOUT}s, attempting restore anyway" >&2
     fi
-    exit "$GAME_EXIT"
-}
+    do_restore
+fi
 
-# --- Dispatch by monitor profile ---
-case "$MONITOR" in
-    xg27jcg) run_xg27jcg "$@" ;;
-    *)
-        echo "ddc-mode-switcher: Unknown monitor '$MONITOR'. Supported: xg27jcg" >&2
-        echo "Set DISPLAY_MODE_SWITCHER_MONITOR or add support for your monitor." >&2
-        exit 1
-        ;;
-esac
+exit "$GAME_EXIT"

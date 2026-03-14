@@ -1,0 +1,39 @@
+# ddc-mode-switcher configuration
+# Copy to: ~/.config/ddc-mode-switcher/config
+#
+# Find your values:
+#   ddcutil detect        → I2C bus number
+#   gdctl show            → connector names, current modes, scales
+#   ddcutil capabilities  → VCP codes for your monitor's mode switch
+
+# --- Required ---
+
+# I2C bus number for the monitor
+BUS=5
+
+# Primary monitor connector name (as shown by gdctl)
+CONN=DP-2
+
+# Desktop resolution — the mode you want restored after gaming.
+# Must match exactly what gdctl reports (resolution only, no refresh rate).
+NATIVE_RES=5120x2880
+
+# DDC toggle sequence: array of "VCP_CODE VALUE" pairs sent in order.
+# This example uses VCP 0x03 (soft controls) to toggle Frame Rate Boost
+# on the ASUS ROG Strix XG27JCG (value 1 = open menu, 20 = confirm).
+TOGGLE_STEPS=("0x03 1" "0x03 20")
+
+# --- Optional ---
+
+# Secondary monitor connector (for multi-monitor gdctl restore)
+#SECONDARY_CONN=DP-3
+
+# Default scale values used as fallback if gdctl can't read them
+#DEFAULT_SCALE=1.66
+#DEFAULT_SECONDARY_SCALE=1.0
+
+# Max seconds to poll gdctl for mode switch confirmation (default: 10)
+#SWITCH_TIMEOUT=10
+
+# Blind wait in seconds when gdctl is unavailable (default: 2)
+#FALLBACK_WAIT=2

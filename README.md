@@ -1,22 +1,37 @@
-# display-mode-switcher
+# ddc-mode-switcher
 
-Switch dual-mode monitor display modes (e.g. 5K↔2K high-refresh) for desktop use vs gaming. Use as a **toggle** or as a **wrapper** for Steam/games. Binary: `ddc-mode-switcher`.
-
-## Currently supported
-
-- **ASUS ROG Strix XG27JCG** — 5K (5120×2880 @180Hz) ↔ 2K (2560×1440 @330Hz) "Frame Rate Boost"
-
-Other dual-mode monitors may work with additional profiles. Contributions welcome.
+Switch dual-mode monitor display modes (e.g. 5K desktop ↔ 2K high-refresh gaming) via DDC/CI. Use as a **toggle** or as a **wrapper** for Steam/games. Works with any dual-mode monitor through a simple config file.
 
 ## Requirements
 
 - `ddcutil` — DDC/CI communication (any compositor)
 - `i2c_dev` kernel module loaded
-- **GNOME on Wayland** (for wrapper mode) — `gdctl` (Mutter 48+) restores res/scale when switching back to 5K (GNOME defaults to 4K otherwise). Toggle mode works on any compositor; wrapper's restore step is GNOME-specific.
+- **Optional:** `gdctl` (Mutter 48+) — enables verified mode switching and automatic res/scale restore. Without it, the script uses blind waits and skips restore.
+
+## Quick start
+
+1. Find your monitor's I2C bus and DDC toggle commands:
+   ```bash
+   ddcutil detect          # find the bus number
+   ddcutil capabilities    # find VCP codes for mode switching
+   gdctl show              # find connector names, current mode, scale
+   ```
+
+2. Create a config file:
+   ```bash
+   mkdir -p ~/.config/ddc-mode-switcher
+   cp config.example ~/.config/ddc-mode-switcher/config
+   # Edit with your values
+   ```
+
+3. Test:
+   ```bash
+   ddc-mode-switcher       # toggle mode
+   ```
 
 ## Usage
 
-**Toggle mode** (high-res ↔ high-refresh):
+**Toggle mode:**
 ```bash
 ddc-mode-switcher
 ```
@@ -31,32 +46,60 @@ ddc-mode-switcher mangohud %command%
 ddc-mode-switcher mangohud %command%
 ```
 
-## Environment
+## Configuration
+
+Create `~/.config/ddc-mode-switcher/config` (see `config.example` for a fully commented template):
+
+```bash
+BUS=5                              # I2C bus number
+CONN=DP-2                          # Monitor connector name
+NATIVE_RES=5120x2880               # Desktop resolution to restore to
+TOGGLE_STEPS=("0x03 1" "0x03 20")  # DDC VCP toggle sequence
+```
+
+### Optional settings
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DISPLAY_MODE_SWITCHER_MONITOR` | xg27jcg | Monitor profile |
-| `DISPLAY_MODE_SWITCH_DELAY` | 2 | Seconds to wait after switch before launching (wrapper only) |
-| `XG27JCG_BUS` | 5 | I2C bus for XG27JCG |
-| `XG27JCG_CONN` | DP-2 | Connector name (gdctl) |
-| `XG27JCG_SECONDARY_CONN` | DP-3 | Secondary monitor connector |
+| `SECONDARY_CONN` | *(none)* | Secondary monitor connector for multi-monitor restore |
+| `DEFAULT_SCALE` | 1.0 | Fallback primary scale if gdctl can't read it |
+| `DEFAULT_SECONDARY_SCALE` | 1.0 | Fallback secondary scale |
+| `SWITCH_TIMEOUT` | 10 | Max seconds to poll gdctl for mode confirmation |
+| `FALLBACK_WAIT` | 2 | Blind wait (seconds) when gdctl is unavailable |
 
-## How it works (XG27JCG)
+### Environment overrides
 
-1. Uses DDC VCP 0x03 soft controls: value 1 opens menu, 20 confirms (toggles Frame Rate Boost)
-2. When switching to 2K: compositor picks resolution automatically
-3. When switching back to 5K: **GNOME** defaults to 4K → `gdctl` restores saved res/scale. On other compositors, restore is skipped.
-4. Wrapper saves state (when gdctl available) before switch, restores after command exits
+| Variable | Description |
+|----------|-------------|
+| `DISPLAY_MODE_SWITCHER_CONFIG` | Config file path (overrides default location) |
+| `DISPLAY_MODE_SWITCH_TIMEOUT` | Override `SWITCH_TIMEOUT` from config |
 
-## Adding support for other monitors
+## How it works
 
-The script is structured with per-monitor profiles. To add a monitor:
+1. **Toggle mode:** Sends the DDC VCP commands defined in `TOGGLE_STEPS` to switch the monitor between its two modes.
 
-1. Add a `run_<profile>()` function with `do_toggle`, `do_restore` (if needed), and wrapper logic
-2. Add the profile to the dispatch `case` in the main script
-3. Document the profile in README and submit a PR
+2. **Wrapper mode:**
+   - Saves the current display state (mode + scale) via `gdctl` if available
+   - If the current resolution doesn't match `NATIVE_RES`, assumes already in alternate mode and runs the command directly
+   - Sends DDC toggle, then polls `gdctl show` until the resolution changes (confirmed switch) or times out
+   - Runs the wrapped command
+   - Sends DDC toggle again, polls until `NATIVE_RES` is confirmed
+   - Restores the exact saved mode and scale via `gdctl`
 
-Profiles need: DDC bus, connector name(s), toggle command sequence, and optionally gdctl restore logic if the compositor misbehaves on mode switch.
+3. **Without gdctl** (non-GNOME compositors): toggle still works, wrapper uses a blind wait (`FALLBACK_WAIT`) instead of polling, and skips the restore step.
+
+## Example: ASUS ROG Strix XG27JCG
+
+This monitor has a "Frame Rate Boost" feature: 5K (5120x2880 @180Hz) ↔ 2K (2560x1440 @330Hz), toggled via DDC VCP 0x03 soft controls (value 1 opens the OSD menu, value 20 confirms).
+
+```bash
+BUS=5
+CONN=DP-2
+NATIVE_RES=5120x2880
+TOGGLE_STEPS=("0x03 1" "0x03 20")
+SECONDARY_CONN=DP-3
+DEFAULT_SCALE=1.66
+```
 
 ## Installation
 
@@ -64,7 +107,6 @@ Profiles need: DDC bus, connector name(s), toggle command sequence, and optional
 ```bash
 yay -S ddc-mode-switcher
 ```
-Installs the `ddc-mode-switcher` binary.
 
 **From source:**
 ```bash
