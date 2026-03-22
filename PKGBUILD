@@ -10,7 +10,7 @@ depends=('ddcutil')
 optdepends=('mutter: gdctl for res/scale restore on GNOME'
             'libnotify: desktop notifications on error')
 source=("https://github.com/Gunther-Schulz/display-mode-switcher/archive/refs/tags/v${pkgver}.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('bed108f16484db492b24159aec107b9d95975f6b5c27d872a839b94587d2c30a')
 
 package() {
   cd "$srcdir/display-mode-switcher-${pkgver}"
