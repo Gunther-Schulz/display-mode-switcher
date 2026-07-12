@@ -10,7 +10,7 @@ depends=('ddcutil')
 optdepends=('mutter: gdctl for res/scale restore on GNOME'
             'libnotify: desktop notifications on error')
 source=("https://github.com/Gunther-Schulz/ddc-mode-switcher/archive/refs/tags/v${pkgver}.tar.gz")
-sha256sums=('bed108f16484db492b24159aec107b9d95975f6b5c27d872a839b94587d2c30a')
+sha256sums=('edc125b3e5ffa5e061a7503e9d9e9f3fc0e15608822d981ae36fbaef43f67d41')
 
 package() {
   cd "$srcdir/ddc-mode-switcher-${pkgver}"
