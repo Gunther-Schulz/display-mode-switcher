@@ -6,18 +6,26 @@
 # Location: ~/.config/ddc-mode-switcher/config
 #
 # How to find your values:
-#   ddcutil detect        → I2C bus number
+#   ddcutil detect        → I2C bus, and the Model name (for MONITOR)
 #   ddcutil capabilities  → VCP codes for your monitor's mode switch
 #   gdctl show            → connector names, current modes, scales (GNOME only)
 #
-# For more information see: https://github.com/Gunther-Schulz/display-mode-switcher
+# For more information see: https://github.com/Gunther-Schulz/ddc-mode-switcher
 
 # =============================================================================
 # Required settings
 # =============================================================================
 
-# Primary monitor connector name as reported by gdctl.
-# Find it with: gdctl show
+# Monitor selection — set MONITOR *or* CONN (MONITOR recommended).
+
+# Match the monitor by its model name (as shown by 'ddcutil detect' → Model).
+# Portable: the connector and I2C bus are auto-detected, so the same config
+# works on any machine/port. Substring, case-insensitive; must match exactly
+# one DDC-capable display.
+#MONITOR=XG27JCG
+
+# ...or pin a specific connector (as reported by gdctl). Use this instead of
+# MONITOR if you have several identical monitors. If both are set, CONN wins.
 #CONN=DP-2
 
 # Desktop (native) resolution — the mode to restore to after gaming.
@@ -36,7 +44,7 @@
 # Optional settings
 # =============================================================================
 
-# I2C bus number override. Auto-detected from CONN by default.
+# I2C bus number override. Auto-detected from MONITOR/CONN by default.
 # Only set this if auto-detection picks the wrong bus.
 #BUS=5
 

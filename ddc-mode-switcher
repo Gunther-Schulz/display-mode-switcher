@@ -8,7 +8,7 @@
 
 set -e
 
-VERSION="2.2.0"
+VERSION="2.3.0"
 STATE_FILE="/tmp/ddc-mode-switcher-state"
 
 die() {
@@ -30,10 +30,11 @@ Examples:
   ddc-mode-switcher mangohud %command%    # Steam launch options
 
 Configuration (~/.config/ddc-mode-switcher/config):
-  CONN=DP-2                          # Monitor connector (find with: gdctl show)
+  MONITOR=XG27JCG                    # Match monitor by model name — portable across ports/machines
+  CONN=DP-2                          # ...or pin a connector (gdctl show). Set one; CONN wins if both.
   NATIVE_RES=5120x2880               # Desktop resolution (the mode to restore to)
   TOGGLE_STEPS=("0x03 1" "0x03 20")  # DDC VCP toggle sequence
-  BUS=5                              # I2C bus (optional, auto-detected from CONN)
+  BUS=5                              # I2C bus (optional, auto-detected from MONITOR/CONN)
   SWITCH_TIMEOUT=10                  # Max seconds for mode confirmation (optional, default: 10)
   FALLBACK_WAIT=2                    # Blind wait when gdctl unavailable (optional, default: 2)
 
@@ -41,6 +42,40 @@ Environment:
   DISPLAY_MODE_SWITCHER_CONFIG       Config file path (overrides default location)
   DISPLAY_MODE_SWITCH_TIMEOUT        Override SWITCH_TIMEOUT from config
 EOF
+}
+
+# --- Monitor resolution ---
+
+# Resolve CONN and BUS from a monitor model name (MONITOR). Dies on 0 / multiple matches.
+resolve_monitor() {
+    local result a b attempt
+    # ddcutil's cache can be cold on the very first call (or right after an EDID
+    # change); retry once before giving up.
+    for attempt in 1 2; do
+        result=$(ddcutil detect 2>/dev/null | awk -v want="$MONITOR" '
+            /^Display [0-9]/ { n++; conn[n]=""; bus[n]=""; model[n]=""; cur=n; next }
+            /^[^[:space:]]/  { cur=0; next }
+            cur==0           { next }
+            /I2C bus:/       { b=$NF; gsub(/.*i2c-/,"",b); bus[cur]=b }
+            /DRM_connector:/ { c=$NF; sub(/^card[0-9]+-/,"",c); conn[cur]=c }
+            /Model:/         { m=$0; sub(/^[[:space:]]*Model:[[:space:]]*/,"",m); sub(/[[:space:]]+$/,"",m); model[cur]=m }
+            END {
+                for (i=1; i<=n; i++)
+                    if (index(tolower(model[i]), tolower(want)) > 0) { matches++; mi=i }
+                if (matches == 1) print conn[mi], bus[mi]
+                else print "ERR", matches+0
+            }
+        ')
+        read -r a b <<<"$result"
+        [[ "$a" != "ERR" ]] && break
+        [[ "$attempt" -lt 2 ]] && sleep 1
+    done
+    if [[ "$a" == "ERR" ]]; then
+        [[ "$b" == "0" ]] && die "no DDC-capable display matching MONITOR=\"$MONITOR\" — check 'ddcutil detect' (laptop panels don't support DDC/CI)"
+        die "MONITOR=\"$MONITOR\" matches $b displays — set CONN in the config to pick the port"
+    fi
+    CONN="$a"
+    BUS="${BUS:-$b}"
 }
 
 # --- Configuration ---
@@ -55,7 +90,7 @@ load_config() {
             mkdir -p "$(dirname "$user_config")"
             cp "$example" "$user_config"
             config="$user_config"
-            die "config created at $user_config — edit it and set: BUS, CONN, NATIVE_RES, TOGGLE_STEPS"
+            die "config created at $user_config — edit it and set: MONITOR (or CONN), NATIVE_RES, TOGGLE_STEPS"
         else
             die "no config found and no example at $example — see 'ddc-mode-switcher --help'"
         fi
@@ -63,9 +98,14 @@ load_config() {
 
     source "$config"
 
+    # Resolve monitor by model name when CONN isn't set explicitly
+    if [[ -z "${CONN:-}" && -n "${MONITOR:-}" ]]; then
+        resolve_monitor
+    fi
+
     # Validate required settings
     local missing=()
-    [[ -z "${CONN:-}" ]] && missing+=(CONN)
+    [[ -z "${CONN:-}" ]] && missing+=("MONITOR or CONN")
     [[ -z "${NATIVE_RES:-}" ]] && missing+=(NATIVE_RES)
     [[ ${#TOGGLE_STEPS[@]} -eq 0 ]] 2>/dev/null && missing+=(TOGGLE_STEPS)
 
@@ -73,7 +113,7 @@ load_config() {
         die "missing required config in $config: ${missing[*]}"
     fi
 
-    # Auto-detect I2C bus from connector name if BUS is not set
+    # Auto-detect I2C bus from connector name if still unset
     if [[ -z "${BUS:-}" ]]; then
         BUS=$(ddcutil detect 2>/dev/null | awk -v conn="$CONN" '
             /I2C bus:/ { bus=$NF; gsub(/.*i2c-/, "", bus) }

@@ -51,19 +51,18 @@ ddc-mode-switcher mangohud %command%
 Create `~/.config/ddc-mode-switcher/config` (see `config.example` for a fully commented template):
 
 ```bash
-BUS=5                              # I2C bus number
-CONN=DP-2                          # Monitor connector name
+MONITOR=XG27JCG                    # Match by model name (portable; bus+connector auto-detected)
 NATIVE_RES=5120x2880               # Desktop resolution to restore to
 TOGGLE_STEPS=("0x03 1" "0x03 20")  # DDC VCP toggle sequence
 ```
+
+Set `MONITOR` (match by model name — recommended, portable across ports/machines) **or** `CONN=DP-2` (pin a connector; use this if you have several identical monitors). `BUS` is auto-detected from either.
 
 ### Optional settings
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SECONDARY_CONN` | *(none)* | Secondary monitor connector for multi-monitor restore |
-| `DEFAULT_SCALE` | 1.0 | Fallback primary scale if gdctl can't read it |
-| `DEFAULT_SECONDARY_SCALE` | 1.0 | Fallback secondary scale |
+| `BUS` | *(auto)* | I2C bus override; auto-detected from `MONITOR`/`CONN` |
 | `SWITCH_TIMEOUT` | 10 | Max seconds to poll gdctl for mode confirmation |
 | `FALLBACK_WAIT` | 2 | Blind wait (seconds) when gdctl is unavailable |
 
@@ -93,12 +92,9 @@ TOGGLE_STEPS=("0x03 1" "0x03 20")  # DDC VCP toggle sequence
 This monitor has a "Frame Rate Boost" feature: 5K (5120x2880 @180Hz) ↔ 2K (2560x1440 @330Hz), toggled via DDC VCP 0x03 soft controls (value 1 opens the OSD menu, value 20 confirms).
 
 ```bash
-BUS=5
-CONN=DP-2
+MONITOR=XG27JCG
 NATIVE_RES=5120x2880
 TOGGLE_STEPS=("0x03 1" "0x03 20")
-SECONDARY_CONN=DP-3
-DEFAULT_SCALE=1.66
 ```
 
 ## Installation
@@ -110,8 +106,8 @@ yay -S ddc-mode-switcher
 
 **From source:**
 ```bash
-git clone https://github.com/Gunther-Schulz/display-mode-switcher.git
-cd display-mode-switcher
+git clone https://github.com/Gunther-Schulz/ddc-mode-switcher.git
+cd ddc-mode-switcher
 sudo install -Dm755 ddc-mode-switcher /usr/bin/ddc-mode-switcher
 ```
 
